@@ -38,6 +38,15 @@ sudo ln -s $(pwd)/ansible-log.sh /usr/local/bin/ansible-log
 # Run an Ansible command with logging
 ansible-log run ansible-playbook site.yml -i inventory
 
+# Run with diff mode (show only changes during execution)
+ansible-log run ansible-playbook site.yml --diff
+
+# Pipe ansible output directly (captures both stdout and stderr)
+ansible-playbook site.yml -i inventory 2>&1 | ansible-log
+
+# Pipe with diff filtering (show only changes)
+ansible-playbook site.yml -i inventory 2>&1 | ansible-log --diff
+
 # View the latest run
 ansible-log log
 
@@ -52,12 +61,13 @@ ansible-log list-runs
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `run <command>` | Execute Ansible command with logging | `ansible-log run ansible-playbook site.yml` |
+| `run <command> [--diff]` | Execute Ansible command with logging | `ansible-log run ansible-playbook site.yml --diff` |
 | `log [number] [--diff]` | Show log for specific run | `ansible-log log 0 --diff` |
 | `list-runs` | List all recorded runs | `ansible-log list-runs` |
 | `setup-config [path]` | Create optimized ansible.cfg | `ansible-log setup-config` |
 | `clean` | Remove all stored logs | `ansible-log clean` |
 | `help` | Show usage information | `ansible-log help` |
+| **Piping Mode** | Pipe ansible output directly | `ansible-playbook site.yml 2>&1 \| ansible-log [--diff]` |
 
 ## 🎨 Output Examples
 
@@ -205,7 +215,16 @@ ansible-log run ansible-playbook long-running.yml &
 alog --diff
 ```
 
-### 4. **Clean Up Regularly**
+### 4. **Use Piping for Existing Workflows**
+```bash
+# Integrate with existing scripts without changing them
+ansible-playbook deploy.yml -i production 2>&1 | ansible-log --diff
+
+# Great for CI/CD where you want to capture logs without changing commands
+existing-ansible-script.sh 2>&1 | ansible-log
+```
+
+### 5. **Clean Up Regularly**
 ```bash
 # Set a lower max runs for projects with frequent deployments
 export ANSIBLE_MAX_RUNS=20
