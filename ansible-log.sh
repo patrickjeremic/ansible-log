@@ -73,9 +73,9 @@ clean_old_runs() {
     local run_files
     readarray -t run_files < <(get_run_files)
     
-    if [ ${#run_files[@]} -gt $MAX_RUNS ]; then
+    if [ ${#run_files[@]} -gt "$MAX_RUNS" ]; then
         echo "Cleaning old runs (keeping last $MAX_RUNS)..."
-        for ((i=$MAX_RUNS; i<${#run_files[@]}; i++)); do
+        for ((i=MAX_RUNS; i<${#run_files[@]}; i++)); do
             rm -f "${run_files[$i]}"
             echo "Removed: $(basename "${run_files[$i]}")"
         done
@@ -516,7 +516,7 @@ EOF
     echo ""
     
     # Show scope information
-    if [[ "$config_file" == *"/.ansible.cfg" ]] || [[ "$config_file" == "~/.ansible.cfg" ]]; then
+    if [[ "$config_file" == *"/.ansible.cfg" ]] || [[ "$config_file" == "$HOME/.ansible.cfg" ]]; then
         echo -e "${BLUE}Note: This is a global configuration that will affect all Ansible runs${NC}"
     else
         echo -e "${BLUE}Note: This is a project-specific configuration${NC}"
