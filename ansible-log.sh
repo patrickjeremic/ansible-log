@@ -165,6 +165,7 @@ EOF
 # Function to list all runs
 list_runs() {
     local run_files
+    local reversed_files
     readarray -t run_files < <(get_run_files)
     
     if [ ${#run_files[@]} -eq 0 ]; then
@@ -172,18 +173,27 @@ list_runs() {
         return 0
     fi
     
-    echo -e "${BLUE}Recent Ansible Runs:${NC}"
+    # Reverse the array so newest runs appear at the bottom
+    for ((i=${#run_files[@]}-1; i>=0; i--)); do
+        reversed_files+=("${run_files[$i]}")
+    done
+    
+    echo -e "${BLUE}Recent Ansible Runs (oldest to newest):${NC}"
     echo "----------------------------------------"
     
-    for i in "${!run_files[@]}"; do
-        local file="${run_files[$i]}"
+    for i in "${!reversed_files[@]}"; do
+        local file="${reversed_files[$i]}"
         local basename_file
         local timestamp
         local cmd
         local status
+        local original_index
         
         basename_file=$(basename "$file")
         timestamp=$(echo "$basename_file" | sed 's/run_\(.*\)\.log/\1/' | tr '_' ' ' | sed 's/-/:/3' | sed 's/-/:/3')
+        
+        # Calculate the original index (for log command reference)
+        original_index=$((${#run_files[@]} - 1 - i))
         
         # Extract command and status from log file
         cmd=$(grep "^Command:" "$file" 2>/dev/null | cut -d' ' -f2- || echo "Unknown command")
@@ -196,7 +206,7 @@ list_runs() {
             status="${YELLOW}? UNKNOWN${NC}"
         fi
         
-        printf "%2d: %s - %s\n" "$i" "$timestamp" "$status"
+        printf "%2d: %s - %s\n" "$original_index" "$timestamp" "$status"
         printf "    Command: %s\n" "$cmd"
         echo ""
     done
