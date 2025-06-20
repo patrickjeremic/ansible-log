@@ -219,7 +219,7 @@ list_runs() {
 
 # Function to show log for specific run
 show_log() {
-    local run_number="${1:-0}"
+    local run_number="0"  # Default to latest run
     local diff_only=false
     local strip_colors_flag=false
     
@@ -228,23 +228,24 @@ show_log() {
         strip_colors_flag=true
     fi
     
-    # Parse arguments - handle the case where we might not have additional args
-    if [[ $# -gt 1 ]]; then
-        shift
-        while [[ $# -gt 0 ]]; do
-            case $1 in
-                --diff)
-                    diff_only=true
-                    shift
-                    ;;
-                *)
-                    echo "Unknown option: $1"
-                    echo "Usage: ansible-log log [run-number] [--diff]"
-                    return 1
-                    ;;
-            esac
-        done
-    fi
+    # Parse arguments - handle --diff flag and run number in any order
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --diff)
+                diff_only=true
+                shift
+                ;;
+            [0-9]*)
+                run_number="$1"
+                shift
+                ;;
+            *)
+                echo "Unknown option: $1"
+                echo "Usage: ansible-log log [run-number] [--diff]"
+                return 1
+                ;;
+        esac
+    done
     
     local run_files
     readarray -t run_files < <(get_run_files)
@@ -564,7 +565,8 @@ case "${1:-help}" in
         run_ansible "$@"
         ;;
     "log")
-        show_log "${2:-0}" "${@:3}"
+        shift
+        show_log "$@"
         ;;
     "list-runs")
         list_runs
