@@ -55,6 +55,13 @@ get_timestamp() {
     date '+%Y-%m-%d_%H-%M-%S'
 }
 
+# Function to resolve actual command path (bypass aliases)
+resolve_command() {
+    local cmd="$1"
+    # Use 'command -v' to get the actual executable path, bypassing aliases
+    command -v "$cmd" 2>/dev/null || echo "$cmd"
+}
+
 # Function to get run files sorted by modification time (newest first)
 get_run_files() {
     find "$ANSIBLE_LOG_DIR" -name "run_*.log" -type f -printf '%T@ %p\n' 2>/dev/null | \
@@ -80,10 +87,15 @@ run_ansible() {
     local timestamp
     local log_file
     local cmd_line
+    local resolved_cmd
+    local first_arg="$1"
     
     timestamp=$(get_timestamp)
     log_file="$ANSIBLE_LOG_DIR/run_${timestamp}.log"
     cmd_line="$*"
+    
+    # Resolve the first command to bypass any aliases
+    resolved_cmd=$(resolve_command "$first_arg")
     
     echo "Starting Ansible run at $(date)"
     echo "Command: $cmd_line"
@@ -104,9 +116,12 @@ EOF
     
     # Run the ansible command and capture output
     # Force colored output by setting ANSIBLE_FORCE_COLOR and using script to preserve TTY
+    # Use the resolved command path to bypass aliases
     if command -v script >/dev/null 2>&1; then
         # Use script to preserve TTY for colored output
-        if ANSIBLE_FORCE_COLOR=1 script -qec "$*" /dev/null 2>&1 | tee -a "$log_file"; then
+        # Reconstruct command with resolved path
+        shift  # Remove first argument
+        if ANSIBLE_FORCE_COLOR=1 script -qec "$resolved_cmd $*" /dev/null 2>&1 | tee -a "$log_file"; then
             echo "" >> "$log_file"
             echo "=== RUN COMPLETED SUCCESSFULLY ===" >> "$log_file"
             echo -e "${GREEN}Ansible run completed successfully${NC}"
@@ -123,7 +138,9 @@ EOF
     else
         # Fallback if script command is not available
         echo "Warning: 'script' command not available, colors may not be preserved in terminal"
-        if ANSIBLE_FORCE_COLOR=1 "$@" 2>&1 | tee -a "$log_file"; then
+        # Use resolved command path and shift arguments
+        shift  # Remove first argument
+        if ANSIBLE_FORCE_COLOR=1 "$resolved_cmd" "$@" 2>&1 | tee -a "$log_file"; then
             echo "" >> "$log_file"
             echo "=== RUN COMPLETED SUCCESSFULLY ===" >> "$log_file"
             echo -e "${GREEN}Ansible run completed successfully${NC}"

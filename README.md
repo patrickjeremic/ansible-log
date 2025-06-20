@@ -123,7 +123,7 @@ ansible-log setup-config ~/.ansible.cfg
 Add these aliases to your `~/.bashrc` or `~/.bash_profile` for seamless integration:
 
 ```bash
-# Ansible logging aliases
+# Ansible logging aliases - these work safely without recursion
 alias ansible='ansible-log run ansible'
 alias ansible-playbook='ansible-log run ansible-playbook'
 alias ansible-vault='ansible-log run ansible-vault'
@@ -144,7 +144,7 @@ alias alog-setup='ansible-log setup-config'
 For Zsh users, add to your `~/.zshrc`:
 
 ```zsh
-# Ansible logging aliases
+# Ansible logging aliases - these work safely without recursion
 alias ansible='ansible-log run ansible'
 alias ansible-playbook='ansible-log run ansible-playbook'
 alias ansible-vault='ansible-log run ansible-vault'
@@ -165,7 +165,7 @@ alias alog-setup='ansible-log setup-config'
 For Fish shell users, add to your `~/.config/fish/config.fish`:
 
 ```fish
-# Ansible logging aliases
+# Ansible logging aliases - these work safely without recursion
 alias ansible='ansible-log run ansible'
 alias ansible-playbook='ansible-log run ansible-playbook'
 alias ansible-vault='ansible-log run ansible-vault'
@@ -180,6 +180,8 @@ alias alogs='ansible-log list-runs'
 alias alog-clean='ansible-log clean'
 alias alog-setup='ansible-log setup-config'
 ```
+
+> **🛡️ Recursion Protection**: The script automatically resolves command paths to prevent infinite recursion when using aliases. You can safely alias `ansible-playbook` without worrying about loops!
 
 ## 💡 Pro Tips
 
