@@ -297,6 +297,8 @@ show_diff_log() {
     local in_output=false
     local task_buffer=()
     local in_task=false
+    local current_play=""
+    local play_shown=false
     
     # First pass: show header info
     while IFS= read -r line; do
@@ -332,16 +334,46 @@ show_diff_log() {
         fi
         
         if [ "$show_output" = true ]; then
-            if [[ "$line" =~ ^TASK\ \[.*\] ]]; then
+            if [[ "$line" =~ ^PLAY\ \[.*\] ]]; then
+                # Store current play but don't show it yet
+                current_play="$line"
+                play_shown=false
+            elif [[ "$line" =~ ^TASK\ \[.*\] ]]; then
                 # Start new task - reset buffer
                 task_buffer=("$(echo -e "${CYAN}$line${NC}")")
                 in_task=true
             elif [[ "$line" =~ ^PLAY\ RECAP ]]; then
-                # Always show PLAY RECAP
+                # Always show PLAY RECAP and following lines
                 echo -e "${PURPLE}$line${NC}"
                 in_task=false
+                current_play=""
+                play_shown=false
+                # Continue reading and showing recap lines until we hit an empty line or end
+                while IFS= read -r recap_line; do
+                    if [[ -z "$recap_line" ]] || [[ "$recap_line" =~ ^=== ]]; then
+                        # End of recap section
+                        if [[ "$recap_line" =~ ^=== ]]; then
+                            # Put the line back by echoing it in the appropriate color
+                            if [[ "$recap_line" == "=== RUN COMPLETED SUCCESSFULLY ===" ]]; then
+                                echo -e "${GREEN}$recap_line${NC}"
+                            elif [[ "$recap_line" == "=== RUN FAILED"* ]]; then
+                                echo -e "${RED}$recap_line${NC}"
+                            fi
+                        fi
+                        break
+                    else
+                        echo "$recap_line"
+                    fi
+                done
             elif [[ "$line" =~ (^|.*\[0;[0-9]+m)(changed|failed|fatal): ]] && [ "$in_task" = true ]; then
-                # Task had changes - show everything we buffered plus this status line
+                # Task had changes - show the play first if not already shown
+                if [ "$play_shown" = false ] && [ -n "$current_play" ]; then
+                    echo -e "${PURPLE}$current_play${NC}"
+                    echo ""
+                    play_shown=true
+                fi
+                
+                # Show everything we buffered plus this status line
                 printf '%s\n' "${task_buffer[@]}"
                 if [[ "$line" =~ (^|.*\[0;[0-9]+m)changed: ]]; then
                     echo -e "${YELLOW}$line${NC}"
@@ -355,9 +387,6 @@ show_diff_log() {
                 # Task had no changes - discard buffer completely
                 task_buffer=()
                 in_task=false
-            elif [[ "$line" =~ ^PLAY\ \[.*\] ]]; then
-                # Skip PLAY lines in diff mode
-                continue
             elif [[ "$line" =~ skipping:.*no\ hosts\ matched ]]; then
                 # Skip these lines
                 continue
