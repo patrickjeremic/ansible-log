@@ -50,6 +50,11 @@ ENVIRONMENT VARIABLES:
 EOF
 }
 
+# Function to strip ANSI color codes from text
+strip_colors() {
+    sed 's/\x1b\[[0-9;]*m//g'
+}
+
 # Function to get timestamp
 get_timestamp() {
     date '+%Y-%m-%d_%H-%M-%S'
@@ -216,6 +221,12 @@ list_runs() {
 show_log() {
     local run_number="${1:-0}"
     local diff_only=false
+    local strip_colors_flag=false
+    
+    # Check if output is being piped or redirected
+    if [[ ! -t 1 ]]; then
+        strip_colors_flag=true
+    fi
     
     # Parse arguments - handle the case where we might not have additional args
     if [[ $# -gt 1 ]]; then
@@ -253,16 +264,32 @@ show_log() {
     basename_file=$(basename "$log_file")
     
     if [ "$diff_only" = true ]; then
-        echo -e "${BLUE}=== Ansible Run Log #$run_number ($basename_file) - Changes Only ===${NC}"
+        if [ "$strip_colors_flag" = true ]; then
+            echo "=== Ansible Run Log #$run_number ($basename_file) - Changes Only ==="
+        else
+            echo -e "${BLUE}=== Ansible Run Log #$run_number ($basename_file) - Changes Only ===${NC}"
+        fi
     else
-        echo -e "${BLUE}=== Ansible Run Log #$run_number ($basename_file) ===${NC}"
+        if [ "$strip_colors_flag" = true ]; then
+            echo "=== Ansible Run Log #$run_number ($basename_file) ==="
+        else
+            echo -e "${BLUE}=== Ansible Run Log #$run_number ($basename_file) ===${NC}"
+        fi
     fi
     echo ""
     
     if [ "$diff_only" = true ]; then
-        show_diff_log "$log_file"
+        if [ "$strip_colors_flag" = true ]; then
+            show_diff_log "$log_file" | strip_colors
+        else
+            show_diff_log "$log_file"
+        fi
     else
-        show_full_log "$log_file"
+        if [ "$strip_colors_flag" = true ]; then
+            show_full_log "$log_file" | strip_colors
+        else
+            show_full_log "$log_file"
+        fi
     fi
 }
 
