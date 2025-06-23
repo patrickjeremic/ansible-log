@@ -86,6 +86,8 @@ get_run_files() {
 
 # Function to check if a task should be shown (without displaying it)
 process_task_check() {
+    local strip_colors_flag="$1"
+    shift
     local task_lines=("$@")
     local has_changes=false
     local has_errors=false
@@ -114,6 +116,8 @@ process_task_check() {
 
 # Function to process a completed task
 process_task() {
+    local strip_colors_flag="$1"
+    shift
     local task_lines=("$@")
     local task_status=""
     local has_changes=false
@@ -147,17 +151,36 @@ process_task() {
     if [[ "$has_changes" == true || "$has_errors" == true ]]; then
         # Print all task lines
         for line in "${task_lines[@]}"; do
-            # Apply color formatting
-            if [[ "$line" =~ ^TASK\ \[.*\] ]]; then
-                echo -e "${CYAN}$line${NC}"
-            elif [[ "$line" =~ (^|.*\[0;[0-9]+m)changed: ]]; then
-                echo -e "${YELLOW}$line${NC}"
-            elif [[ "$line" =~ (^|.*\[0;[0-9]+m)(failed|fatal|UNREACHABLE): ]]; then
-                echo -e "${RED}$line${NC}"
-            elif [[ "$line" =~ ^ok: ]]; then
-                echo -e "${GREEN}$line${NC}"
-            else
+            # Apply color formatting based on strip_colors_flag
+            if [ "$strip_colors_flag" = true ]; then
                 echo "$line"
+            else
+                if [[ "$line" =~ ^TASK\ \[.*\] ]]; then
+                    echo -e "${CYAN}$line${NC}"
+                elif [[ "$line" =~ (^|.*\[0;[0-9]+m)changed: ]]; then
+                    echo -e "${YELLOW}$line${NC}"
+                elif [[ "$line" =~ (^|.*\[0;[0-9]+m)(failed|fatal|UNREACHABLE): ]]; then
+                    echo -e "${RED}$line${NC}"
+                elif [[ "$line" =~ ^ok: ]]; then
+                    echo -e "${GREEN}$line${NC}"
+                elif [[ "$line" =~ ^--- ]]; then
+                    # Diff header for "before" content
+                    echo -e "${RED}$line${NC}"
+                elif [[ "$line" =~ ^\+\+\+ ]]; then
+                    # Diff header for "after" content
+                    echo -e "${GREEN}$line${NC}"
+                elif [[ "$line" =~ ^-[^-] ]]; then
+                    # Removed lines in diff (starting with single -)
+                    echo -e "${RED}$line${NC}"
+                elif [[ "$line" =~ ^\+[^+] ]]; then
+                    # Added lines in diff (starting with single +)
+                    echo -e "${GREEN}$line${NC}"
+                elif [[ "$line" =~ ^@@ ]]; then
+                    # Diff context markers
+                    echo -e "${BLUE}$line${NC}"
+                else
+                    echo "$line"
+                fi
             fi
         done
         echo ""  # Add spacing after task
@@ -170,6 +193,7 @@ process_task() {
 # Unified function to process ansible output
 process_ansible_output() {
     local diff_only="$1"
+    local strip_colors_flag="$2"
     local current_play=""
     local play_shown=false
     local task_lines=()
@@ -185,16 +209,20 @@ process_ansible_output() {
             # Process any pending task before starting new play
             if [[ "$in_task" == true && ${#task_lines[@]} -gt 0 ]]; then
                 if [[ "$diff_only" == true ]]; then
-                    if process_task "${task_lines[@]}"; then
+                    if process_task "$strip_colors_flag" "${task_lines[@]}"; then
                         # Task was shown, make sure play was shown too
                         if [[ "$play_shown" == false && -n "$current_play" ]]; then
-                            echo -e "${PURPLE}$current_play${NC}"
+                            if [ "$strip_colors_flag" = true ]; then
+                                echo "$current_play"
+                            else
+                                echo -e "${PURPLE}$current_play${NC}"
+                            fi
                             echo ""
                         fi
                         play_shown=true
                     fi
                 else
-                    process_task "${task_lines[@]}"
+                    process_task "$strip_colors_flag" "${task_lines[@]}"
                 fi
                 task_lines=()
                 in_task=false
@@ -208,7 +236,11 @@ process_ansible_output() {
             
             # In full mode, show play immediately
             if [[ "$diff_only" == false ]]; then
-                echo -e "${PURPLE}$clean_line${NC}"
+                if [ "$strip_colors_flag" = true ]; then
+                    echo "$clean_line"
+                else
+                    echo -e "${PURPLE}$clean_line${NC}"
+                fi
                 play_shown=true
             fi
             
@@ -217,18 +249,22 @@ process_ansible_output() {
             if [[ "$in_task" == true && ${#task_lines[@]} -gt 0 ]]; then
                 if [[ "$diff_only" == true ]]; then
                     # Check if task should be shown first
-                    if process_task_check "${task_lines[@]}"; then
+                    if process_task_check "$strip_colors_flag" "${task_lines[@]}"; then
                         # Show play header if not shown yet
                         if [[ "$play_shown" == false && -n "$current_play" ]]; then
-                            echo -e "${PURPLE}$current_play${NC}"
+                            if [ "$strip_colors_flag" = true ]; then
+                                echo "$current_play"
+                            else
+                                echo -e "${PURPLE}$current_play${NC}"
+                            fi
                             echo ""
                             play_shown=true
                         fi
                         # Now show the task
-                        process_task "${task_lines[@]}"
+                        process_task "$strip_colors_flag" "${task_lines[@]}"
                     fi
                 else
-                    process_task "${task_lines[@]}"
+                    process_task "$strip_colors_flag" "${task_lines[@]}"
                 fi
             fi
             
@@ -240,7 +276,11 @@ process_ansible_output() {
             
             # In full mode, show task immediately
             if [[ "$diff_only" == false ]]; then
-                echo -e "${CYAN}$clean_line${NC}"
+                if [ "$strip_colors_flag" = true ]; then
+                    echo "$clean_line"
+                else
+                    echo -e "${CYAN}$clean_line${NC}"
+                fi
             fi
             
         elif [[ "$clean_line" =~ ^PLAY\ RECAP ]]; then
@@ -248,25 +288,33 @@ process_ansible_output() {
             if [[ "$in_task" == true && ${#task_lines[@]} -gt 0 ]]; then
                 if [[ "$diff_only" == true ]]; then
                     # Check if task should be shown first
-                    if process_task_check "${task_lines[@]}"; then
+                    if process_task_check "$strip_colors_flag" "${task_lines[@]}"; then
                         # Show play header if not shown yet
                         if [[ "$play_shown" == false && -n "$current_play" ]]; then
-                            echo -e "${PURPLE}$current_play${NC}"
+                            if [ "$strip_colors_flag" = true ]; then
+                                echo "$current_play"
+                            else
+                                echo -e "${PURPLE}$current_play${NC}"
+                            fi
                             echo ""
                             play_shown=true
                         fi
                         # Now show the task
-                        process_task "${task_lines[@]}"
+                        process_task "$strip_colors_flag" "${task_lines[@]}"
                     fi
                 else
-                    process_task "${task_lines[@]}"
+                    process_task "$strip_colors_flag" "${task_lines[@]}"
                 fi
                 task_lines=()
                 in_task=false
             fi
             
             # Always show PLAY RECAP
-            echo -e "${PURPLE}$clean_line${NC}"
+            if [ "$strip_colors_flag" = true ]; then
+                echo "$clean_line"
+            else
+                echo -e "${PURPLE}$clean_line${NC}"
+            fi
             current_play=""
             play_shown=false
             in_recap=true
@@ -288,17 +336,21 @@ process_ansible_output() {
                 fi
             elif [[ "$diff_only" == false ]]; then
                 # In full mode, show ALL non-task lines with appropriate formatting
-                if [[ "$clean_line" =~ ^ok: ]]; then
-                    echo -e "${GREEN}$clean_line${NC}"
-                elif [[ "$clean_line" =~ ^changed: ]]; then
-                    echo -e "${YELLOW}$clean_line${NC}"
-                elif [[ "$clean_line" =~ ^skipped: ]]; then
-                    echo -e "${BLUE}$clean_line${NC}"
-                elif [[ "$clean_line" =~ ^(failed|fatal|UNREACHABLE): ]]; then
-                    echo -e "${RED}$clean_line${NC}"
-                elif [[ -n "$clean_line" ]]; then
-                    # Show ALL other lines in full mode
+                if [ "$strip_colors_flag" = true ]; then
                     echo "$clean_line"
+                else
+                    if [[ "$clean_line" =~ ^ok: ]]; then
+                        echo -e "${GREEN}$clean_line${NC}"
+                    elif [[ "$clean_line" =~ ^changed: ]]; then
+                        echo -e "${YELLOW}$clean_line${NC}"
+                    elif [[ "$clean_line" =~ ^skipped: ]]; then
+                        echo -e "${BLUE}$clean_line${NC}"
+                    elif [[ "$clean_line" =~ ^(failed|fatal|UNREACHABLE): ]]; then
+                        echo -e "${RED}$clean_line${NC}"
+                    elif [[ -n "$clean_line" ]]; then
+                        # Show ALL other lines in full mode
+                        echo "$clean_line"
+                    fi
                 fi
             fi
         fi
@@ -308,17 +360,21 @@ process_ansible_output() {
     if [[ "$in_task" == true && ${#task_lines[@]} -gt 0 ]]; then
         if [[ "$diff_only" == true ]]; then
             # Check if task should be shown first
-            if process_task_check "${task_lines[@]}"; then
+            if process_task_check "$strip_colors_flag" "${task_lines[@]}"; then
                 # Show play header if not shown yet
                 if [[ "$play_shown" == false && -n "$current_play" ]]; then
-                    echo -e "${PURPLE}$current_play${NC}"
+                    if [ "$strip_colors_flag" = true ]; then
+                        echo "$current_play"
+                    else
+                        echo -e "${PURPLE}$current_play${NC}"
+                    fi
                     echo ""
                 fi
                 # Now show the task
-                process_task "${task_lines[@]}"
+                process_task "$strip_colors_flag" "${task_lines[@]}"
             fi
         else
-            process_task "${task_lines[@]}"
+            process_task "$strip_colors_flag" "${task_lines[@]}"
         fi
     fi
 }
@@ -372,7 +428,7 @@ EOF
     local exit_code=0
     
     # Read all input and save to temp file while also displaying
-    if tee "$temp_file" | process_ansible_output "$diff_only"; then
+    if tee "$temp_file" | process_ansible_output "$diff_only" false; then
         exit_code=0
     else
         exit_code=${PIPESTATUS[0]}
@@ -476,7 +532,7 @@ EOF
     if command -v script >/dev/null 2>&1; then
         # Use script to preserve TTY for colored output
         shift  # Remove first argument
-        if ANSIBLE_FORCE_COLOR=1 script -qec "$resolved_cmd $*" /dev/null 2>&1 | tee "$temp_file" | process_ansible_output "$diff_only"; then
+        if ANSIBLE_FORCE_COLOR=1 script -qec "$resolved_cmd $*" /dev/null 2>&1 | tee "$temp_file" | process_ansible_output "$diff_only" false; then
             exit_code=0
         else
             exit_code=${PIPESTATUS[0]}
@@ -485,7 +541,7 @@ EOF
         # Fallback if script command is not available
         echo "Warning: 'script' command not available, colors may not be preserved in terminal"
         shift  # Remove first argument
-        if ANSIBLE_FORCE_COLOR=1 "$resolved_cmd" "$@" 2>&1 | tee "$temp_file" | process_ansible_output "$diff_only"; then
+        if ANSIBLE_FORCE_COLOR=1 "$resolved_cmd" "$@" 2>&1 | tee "$temp_file" | process_ansible_output "$diff_only" false; then
             exit_code=0
         else
             exit_code=${PIPESTATUS[0]}
@@ -681,9 +737,9 @@ show_log() {
         
         # Process the content through diff filter
         if [ "$strip_colors_flag" = true ]; then
-            cat "$temp_file" | process_ansible_output "$diff_only" | strip_colors
+            cat "$temp_file" | process_ansible_output "$diff_only" "$strip_colors_flag" | strip_colors
         else
-            cat "$temp_file" | process_ansible_output "$diff_only"
+            cat "$temp_file" | process_ansible_output "$diff_only" "$strip_colors_flag"
         fi
         
         # Add a blank line before success/failure message for consistency
@@ -741,12 +797,44 @@ show_log() {
             unset 'content_lines[-1]'
         done
         
-        # Show the content
+        # Show the content with consistent coloring
         for line in "${content_lines[@]}"; do
             if [ "$strip_colors_flag" = true ]; then
                 echo "$line" | strip_colors
             else
-                echo "$line"
+                # Apply the same coloring logic as diff mode for consistency
+                if [[ "$line" =~ ^TASK\ \[.*\] ]]; then
+                    echo -e "${CYAN}$line${NC}"
+                elif [[ "$line" =~ ^PLAY\ \[.*\] ]]; then
+                    echo -e "${PURPLE}$line${NC}"
+                elif [[ "$line" =~ ^PLAY\ RECAP ]]; then
+                    echo -e "${PURPLE}$line${NC}"
+                elif [[ "$line" =~ (^|.*\[0;[0-9]+m)changed: ]]; then
+                    echo -e "${YELLOW}$line${NC}"
+                elif [[ "$line" =~ (^|.*\[0;[0-9]+m)(failed|fatal|UNREACHABLE): ]]; then
+                    echo -e "${RED}$line${NC}"
+                elif [[ "$line" =~ ^ok: ]]; then
+                    echo -e "${GREEN}$line${NC}"
+                elif [[ "$line" =~ ^skipped: ]]; then
+                    echo -e "${BLUE}$line${NC}"
+                elif [[ "$line" =~ ^--- ]]; then
+                    # Diff header for "before" content
+                    echo -e "${RED}$line${NC}"
+                elif [[ "$line" =~ ^\+\+\+ ]]; then
+                    # Diff header for "after" content
+                    echo -e "${GREEN}$line${NC}"
+                elif [[ "$line" =~ ^-[^-] ]]; then
+                    # Removed lines in diff (starting with single -)
+                    echo -e "${RED}$line${NC}"
+                elif [[ "$line" =~ ^\+[^+] ]]; then
+                    # Added lines in diff (starting with single +)
+                    echo -e "${GREEN}$line${NC}"
+                elif [[ "$line" =~ ^@@ ]]; then
+                    # Diff context markers
+                    echo -e "${BLUE}$line${NC}"
+                else
+                    echo "$line"
+                fi
             fi
         done
         
