@@ -71,6 +71,33 @@ get_timestamp() {
     date '+%Y-%m-%d_%H-%M-%S'
 }
 
+# Function to get git information
+get_git_info() {
+    local git_info=""
+    
+    # Check if we're in a git repository (including subdirectories)
+    if git rev-parse --git-dir >/dev/null 2>&1; then
+        local commit_hash
+        local branch
+        local is_dirty=""
+        
+        # Get current commit hash (short)
+        commit_hash=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        
+        # Get current branch name
+        branch=$(git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+        
+        # Check if working directory is dirty (has uncommitted changes)
+        if ! git diff-index --quiet HEAD -- 2>/dev/null; then
+            is_dirty=" (dirty)"
+        fi
+        
+        git_info="Branch: ${branch} - Commit SHA: ${commit_hash}${is_dirty}"
+    fi
+    
+    echo "$git_info"
+}
+
 # Function to resolve actual command path (bypass aliases)
 resolve_command() {
     local cmd="$1"
@@ -410,10 +437,15 @@ handle_piped_input() {
     fi
     echo ""
     
+    # Get git information
+    local git_info
+    git_info=$(get_git_info)
+    
     # Write header to log file
     cat << EOF > "$log_file"
 === ANSIBLE RUN LOG ===
 Timestamp: $(date)
+$([ -n "$git_info" ] && echo "$git_info")
 Command: [Piped from stdin]
 Working Directory: $(pwd)
 User: $(whoami)
@@ -512,10 +544,15 @@ run_ansible() {
     fi
     echo ""
     
+    # Get git information
+    local git_info
+    git_info=$(get_git_info)
+    
     # Write header to log file
     cat << EOF > "$log_file"
 === ANSIBLE RUN LOG ===
 Timestamp: $(date)
+$([ -n "$git_info" ] && echo "$git_info")
 Command: $cmd_line
 Working Directory: $(pwd)
 User: $(whoami)
@@ -691,7 +728,7 @@ show_log() {
             break
         fi
         
-        if [[ "$line" =~ ^(Timestamp|Command|Working\ Directory|User|Host): ]]; then
+        if [[ "$line" =~ ^(Timestamp|Branch|Command|Working\ Directory|User|Host): ]]; then
             local key
             local value
             key=$(echo "$line" | cut -d':' -f1)
