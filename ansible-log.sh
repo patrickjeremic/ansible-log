@@ -84,6 +84,34 @@ get_run_files() {
         sort -rn | cut -d' ' -f2- || true
 }
 
+# Function to check if a task should be shown (without displaying it)
+process_task_check() {
+    local task_lines=("$@")
+    local has_changes=false
+    local has_errors=false
+    
+    # Analyze task lines to determine status
+    for line in "${task_lines[@]}"; do
+        if [[ "$line" =~ (^|.*\[0;[0-9]+m)(changed|failed|fatal|UNREACHABLE): ]]; then
+            if [[ "$line" =~ (^|.*\[0;[0-9]+m)changed: ]]; then
+                has_changes=true
+            elif [[ "$line" =~ (^|.*\[0;[0-9]+m)(failed|fatal|UNREACHABLE): ]]; then
+                has_errors=true
+            fi
+        elif [[ "$line" =~ ^---\ before ]] || [[ "$line" =~ ^\+\+\+\ after ]] || [[ "$line" =~ ^@@.*@@ ]]; then
+            # If we see diff content, this task likely has changes
+            has_changes=true
+        fi
+    done
+    
+    # Return 0 (true) if task should be shown
+    if [[ "$has_changes" == true || "$has_errors" == true ]]; then
+        return 0
+    fi
+    
+    return 1
+}
+
 # Function to process a completed task
 process_task() {
     local task_lines=("$@")
@@ -163,6 +191,7 @@ process_ansible_output() {
                             echo -e "${PURPLE}$current_play${NC}"
                             echo ""
                         fi
+                        play_shown=true
                     fi
                 else
                     process_task "${task_lines[@]}"
@@ -187,13 +216,16 @@ process_ansible_output() {
             # Process any pending task before starting new one
             if [[ "$in_task" == true && ${#task_lines[@]} -gt 0 ]]; then
                 if [[ "$diff_only" == true ]]; then
-                    if process_task "${task_lines[@]}"; then
-                        # Task was shown, make sure play was shown too
+                    # Check if task should be shown first
+                    if process_task_check "${task_lines[@]}"; then
+                        # Show play header if not shown yet
                         if [[ "$play_shown" == false && -n "$current_play" ]]; then
                             echo -e "${PURPLE}$current_play${NC}"
                             echo ""
+                            play_shown=true
                         fi
-                        play_shown=true
+                        # Now show the task
+                        process_task "${task_lines[@]}"
                     fi
                 else
                     process_task "${task_lines[@]}"
@@ -215,12 +247,16 @@ process_ansible_output() {
             # Process any pending task before recap
             if [[ "$in_task" == true && ${#task_lines[@]} -gt 0 ]]; then
                 if [[ "$diff_only" == true ]]; then
-                    if process_task "${task_lines[@]}"; then
-                        # Task was shown, make sure play was shown too
+                    # Check if task should be shown first
+                    if process_task_check "${task_lines[@]}"; then
+                        # Show play header if not shown yet
                         if [[ "$play_shown" == false && -n "$current_play" ]]; then
                             echo -e "${PURPLE}$current_play${NC}"
                             echo ""
+                            play_shown=true
                         fi
+                        # Now show the task
+                        process_task "${task_lines[@]}"
                     fi
                 else
                     process_task "${task_lines[@]}"
@@ -271,12 +307,15 @@ process_ansible_output() {
     # Process any final pending task
     if [[ "$in_task" == true && ${#task_lines[@]} -gt 0 ]]; then
         if [[ "$diff_only" == true ]]; then
-            if process_task "${task_lines[@]}"; then
-                # Task was shown, make sure play was shown too
+            # Check if task should be shown first
+            if process_task_check "${task_lines[@]}"; then
+                # Show play header if not shown yet
                 if [[ "$play_shown" == false && -n "$current_play" ]]; then
                     echo -e "${PURPLE}$current_play${NC}"
                     echo ""
                 fi
+                # Now show the task
+                process_task "${task_lines[@]}"
             fi
         else
             process_task "${task_lines[@]}"
@@ -616,65 +655,120 @@ show_log() {
     # Process the ansible output section
     local show_output=false
     if [ "$diff_only" = true ]; then
-        # Use process_ansible_output for diff mode
+        # Use process_ansible_output for diff mode, but handle success/failure messages separately
+        local temp_file
+        temp_file=$(mktemp)
+        local success_message=""
+        local failure_message=""
+        
+        # First pass: extract success/failure messages and write content to temp file
         while IFS= read -r line; do
             if [[ "$line" == "=== COMMAND OUTPUT ===" ]]; then
                 show_output=true
                 continue
             elif [[ "$line" == "=== RUN COMPLETED SUCCESSFULLY ===" ]]; then
-                if [ "$strip_colors_flag" = true ]; then
-                    echo "$line"
-                else
-                    echo -e "${GREEN}$line${NC}"
-                fi
+                success_message="$line"
                 continue
             elif [[ "$line" == "=== RUN FAILED"* ]]; then
-                if [ "$strip_colors_flag" = true ]; then
-                    echo "$line"
-                else
-                    echo -e "${RED}$line${NC}"
-                fi
+                failure_message="$line"
                 continue
             fi
             
             if [ "$show_output" = true ]; then
-                echo "$line"
-            fi
-        done < "$log_file" | if [ "$strip_colors_flag" = true ]; then
-            process_ansible_output "$diff_only" | strip_colors
-        else
-            process_ansible_output "$diff_only"
-        fi
-    else
-        # Show full raw output when not in diff mode
-        while IFS= read -r line; do
-            if [[ "$line" == "=== COMMAND OUTPUT ===" ]]; then
-                show_output=true
-                continue
-            elif [[ "$line" == "=== RUN COMPLETED SUCCESSFULLY ===" ]]; then
-                if [ "$strip_colors_flag" = true ]; then
-                    echo "$line"
-                else
-                    echo -e "${GREEN}$line${NC}"
-                fi
-                continue
-            elif [[ "$line" == "=== RUN FAILED"* ]]; then
-                if [ "$strip_colors_flag" = true ]; then
-                    echo "$line"
-                else
-                    echo -e "${RED}$line${NC}"
-                fi
-                continue
-            fi
-            
-            if [ "$show_output" = true ]; then
-                if [ "$strip_colors_flag" = true ]; then
-                    echo "$line" | strip_colors
-                else
-                    echo "$line"
-                fi
+                echo "$line" >> "$temp_file"
             fi
         done < "$log_file"
+        
+        # Process the content through diff filter
+        if [ "$strip_colors_flag" = true ]; then
+            cat "$temp_file" | process_ansible_output "$diff_only" | strip_colors
+        else
+            cat "$temp_file" | process_ansible_output "$diff_only"
+        fi
+        
+        # Add a blank line before success/failure message for consistency
+        echo ""
+        
+        # Show success/failure message with proper coloring
+        if [[ -n "$success_message" ]]; then
+            if [ "$strip_colors_flag" = true ]; then
+                echo "$success_message"
+            else
+                echo -e "${GREEN}$success_message${NC}"
+            fi
+        elif [[ -n "$failure_message" ]]; then
+            if [ "$strip_colors_flag" = true ]; then
+                echo "$failure_message"
+            else
+                echo -e "${RED}$failure_message${NC}"
+            fi
+        fi
+        
+        rm -f "$temp_file"
+    else
+        # Show full raw output when not in diff mode
+        local temp_file
+        temp_file=$(mktemp)
+        local success_message=""
+        local failure_message=""
+        
+        # First pass: extract success/failure messages and write content to temp file
+        while IFS= read -r line; do
+            if [[ "$line" == "=== COMMAND OUTPUT ===" ]]; then
+                show_output=true
+                continue
+            elif [[ "$line" == "=== RUN COMPLETED SUCCESSFULLY ===" ]]; then
+                success_message="$line"
+                continue
+            elif [[ "$line" == "=== RUN FAILED"* ]]; then
+                failure_message="$line"
+                continue
+            fi
+            
+            if [ "$show_output" = true ]; then
+                echo "$line" >> "$temp_file"
+            fi
+        done < "$log_file"
+        
+        # Show content and remove trailing empty lines
+        local content_lines=()
+        while IFS= read -r line; do
+            content_lines+=("$line")
+        done < "$temp_file"
+        
+        # Remove trailing empty lines
+        while [[ ${#content_lines[@]} -gt 0 && ( -z "${content_lines[-1]}" || "${content_lines[-1]}" =~ ^[[:space:]]*$ ) ]]; do
+            unset 'content_lines[-1]'
+        done
+        
+        # Show the content
+        for line in "${content_lines[@]}"; do
+            if [ "$strip_colors_flag" = true ]; then
+                echo "$line" | strip_colors
+            else
+                echo "$line"
+            fi
+        done
+        
+        # Add exactly one blank line before success/failure message
+        echo ""
+        
+        # Show success/failure message with proper coloring
+        if [[ -n "$success_message" ]]; then
+            if [ "$strip_colors_flag" = true ]; then
+                echo "$success_message"
+            else
+                echo -e "${GREEN}$success_message${NC}"
+            fi
+        elif [[ -n "$failure_message" ]]; then
+            if [ "$strip_colors_flag" = true ]; then
+                echo "$failure_message"
+            else
+                echo -e "${RED}$failure_message${NC}"
+            fi
+        fi
+        
+        rm -f "$temp_file"
     fi
 }
 
